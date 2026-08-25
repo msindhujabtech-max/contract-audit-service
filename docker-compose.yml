@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  contract-audit-service:
+    build: .
+    container_name: contract-audit-service
+    ports:
+      - "8082:8082"
+    networks:
+      - contract-network
+
+networks:
+  contract-network:
+    external: true
