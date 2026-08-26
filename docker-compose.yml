@@ -9,6 +9,7 @@ services:
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       GMAIL_APP_PASSWORD: brhn kraa gerw mbiv
+      ZIPKIN_URL: http://zipkin:9411
     networks:
       - contract-network
 
