@@ -39,14 +39,21 @@ public class EmailNotificationService {
                     Status:   %s
                     Word Count: %d
                     
-                    This event was received via Kafka (async messaging).
+                    Question Asked:
+                    %s
+                    
+                    AI Answer:
+                    %s
                     
                     ---
+                    This event was received via Kafka (async messaging).
                     Contract Audit Service
                     """,
                     request.contractName(),
                     request.status(),
-                    request.wordCount()
+                    request.wordCount(),
+                    request.question() != null ? request.question() : "N/A",
+                    request.answer() != null ? request.answer() : "N/A"
             ));
 
             mailSender.send(message);
