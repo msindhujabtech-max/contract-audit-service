@@ -8,7 +8,7 @@ services:
       - "8082:8082"
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-your-app-password-here}
+      GMAIL_APP_PASSWORD: brhn kraa gerw mbiv
     networks:
       - contract-network
 
