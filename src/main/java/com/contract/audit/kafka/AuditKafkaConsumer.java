@@ -1,6 +1,7 @@
 package com.contract.audit.kafka;
 
 import com.contract.audit.dto.AuditRequest;
+import com.contract.audit.service.EmailNotificationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -31,6 +32,11 @@ public class AuditKafkaConsumer {
 
     private final List<AuditRequest> kafkaAuditLog = new CopyOnWriteArrayList<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final EmailNotificationService emailService;
+
+    public AuditKafkaConsumer(EmailNotificationService emailService) {
+        this.emailService = emailService;
+    }
 
     @KafkaListener(topics = "contract-audit-topic", groupId = "audit-service-group")
     public void consumeAuditEvent(String message) {
@@ -41,6 +47,9 @@ public class AuditKafkaConsumer {
                     request.contractName(), request.status(), request.wordCount());
 
             kafkaAuditLog.add(request);
+
+            // Send email notification
+            emailService.sendAuditNotification(request);
 
             log.info("Kafka audit log size: {}", kafkaAuditLog.size());
         } catch (Exception e) {
