@@ -22,6 +22,14 @@ Read in order, but focus extra time on **Java, Spring Boot, Microservices, and A
 | 10 | `10-GENAI-RAG.md` | RAG, Vector DBs, LangChain, LangGraph, LlamaIndex, embeddings, LLMs |
 | 11 | `11-BEHAVIORAL-LEADERSHIP.md` | Leadership, Agile, project scenarios based on your experience |
 | 12 | `12-QUICK-REVISION.md` | One-page cheat sheet for last-minute review |
+| 13 | `13-DIFFERENCES-JAVA.md` | All "X vs Y" for Java (JDK/JRE/JVM, HashMap/Hashtable, etc.) |
+| 14 | `14-DIFFERENCES-SPRING-MICROSERVICES.md` | All "X vs Y" for Spring, Microservices, REST (Kafka vs WebClient, etc.) |
+| 15 | `15-DIFFERENCES-DB-DEVOPS.md` | All "X vs Y" for DB, DevOps, Cloud (AWS vs Azure vs GCP, etc.) |
+| 16 | `16-DIFFERENCES-ATG-GENAI.md` | All "X vs Y" for ATG & Gen AI (RAG vs Fine-tuning, LangChain vs LangGraph, etc.) |
+
+## Difference Documents (13-16) — Highly Requested in Interviews
+
+Interviewers frequently ask "what is the difference between X and Y". Documents 13-16 collect **every applicable comparison** across all your technologies in quick-reference tables. Review these thoroughly — they're among the most predictable questions.
 
 ## Your Resume Technology Map
 
