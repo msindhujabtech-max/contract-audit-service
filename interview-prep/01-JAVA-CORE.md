@@ -58,6 +58,18 @@ BiFunction<Integer, Integer, Integer> add = (a, b) -> a + b; // takes T,U return
 | `HttpClient` (standard) | Built-in HTTP client | Replaces old HttpURLConnection |
 | Run single-file programs | No compile step | `java Hello.java` |
 
+**In plain terms:** Java 11 is mostly about small quality-of-life wins rather than a big paradigm shift like Java 8. The one that matters most in real services is the built-in `HttpClient` — before Java 11 you either wrestled with the clunky `HttpURLConnection` or pulled in a third-party library. Now the JDK ships a modern client that supports async calls out of the box, which is handy when a microservice needs to call another service without adding a dependency.
+
+```java
+// Java 11 built-in HttpClient — call another microservice with no extra library
+HttpClient client = HttpClient.newHttpClient();
+HttpRequest request = HttpRequest.newBuilder()
+        .uri(URI.create("http://contract-service/api/contracts/42"))
+        .build();
+HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(resp.statusCode() + " → " + resp.body());
+```
+
 ```java
 // New String methods
 "  ".isBlank();           // true
@@ -193,6 +205,8 @@ class Circle extends Shape {
 | Can have concrete + abstract methods | All abstract (until Java 8 default methods) |
 | Use when classes share common code | Use to define a contract/capability |
 
+**In plain terms:** Think of an abstract class as a partially built house — it comes with some rooms already finished (concrete methods) and a shared foundation (state), but a class can only inherit from one. An interface is more like a checklist of capabilities ("must be able to fly", "must be able to swim") that any class can promise to fulfill, and a class can sign up for many of them. Reach for an abstract class when your subclasses share real code; reach for an interface when you just need to define what something can do.
+
 ---
 
 ## Java Collections Framework
@@ -220,6 +234,16 @@ Map (key-value, not a Collection)
 └── ConcurrentHashMap (thread-safe)
 ```
 
+**In simple terms:** Pick the container by what you need: a `List` when order and duplicates matter (like a shopping list), a `Set` when you only want unique items (like a guest list with no repeats), a `Queue` when you process items in arrival order (like a checkout line), and a `Map` when you look things up by a key (like a phone book: name → number).
+
+```java
+List<String> tasks = new ArrayList<>();          // ordered, duplicates OK
+Set<String> uniqueTags = new HashSet<>();        // no duplicates
+Queue<String> jobs = new ArrayDeque<>();         // FIFO processing
+Map<String, Integer> ages = new HashMap<>();     // key → value lookup
+ages.put("Bob", 30);                             // ages.get("Bob") → 30
+```
+
 ### ArrayList vs LinkedList
 
 | | ArrayList | LinkedList |
@@ -229,6 +253,8 @@ Map (key-value, not a Collection)
 | Insert/delete middle | O(n) slow | O(1) fast (if node known) |
 | Memory | Less | More (stores pointers) |
 | Use when | Frequent reads | Frequent inserts/deletes |
+
+**In plain terms:** An ArrayList is like a numbered row of lockers — jumping straight to locker #500 is instant, but squeezing a new locker into the middle means shifting everything after it. A LinkedList is like a treasure hunt where each item holds a note pointing to the next — inserting or removing is quick once you're standing at the right spot, but finding item #500 means walking through 499 notes first. In practice, ArrayList wins for most real-world code because reads dominate.
 
 ### HashMap internals (top interview question)
 
@@ -254,6 +280,8 @@ map.merge("a", 5, Integer::sum);   // a → 6
 | Performance | Fastest | Fast (concurrent) | Slow (fully synchronized) |
 | Use | Single-thread | Multi-thread | Legacy, avoid |
 
+**In plain terms:** Imagine a shared whiteboard. Hashtable puts one lock on the whole board, so only one person can write at a time and everyone else waits — safe but slow. ConcurrentHashMap divides the board into sections so several people can write to different sections at once — safe and fast. HashMap has no lock at all, which is perfect when only one thread ever touches it but corrupts data if shared. Use HashMap alone, ConcurrentHashMap when threads share it, and leave Hashtable in the past.
+
 ### CopyOnWriteArrayList (you used this)
 
 Thread-safe list where every write creates a new copy of the array. Great for read-heavy, write-rare scenarios.
@@ -273,6 +301,19 @@ List<String> list = new CopyOnWriteArrayList<>();
 | Mutable | No (immutable) | Yes | Yes |
 | Thread-safe | Yes (immutable) | No | Yes (synchronized) |
 | Performance | Slow for concat | Fast | Slower than Builder |
+
+**In plain terms:** A `String` is like writing in permanent ink — every time you "change" it you actually throw the old page away and copy everything onto a fresh one, which is wasteful in a loop. `StringBuilder` is a pencil-and-eraser notepad: you keep editing the same page, so it's fast, but only one person (thread) should hold it. `StringBuffer` is the same notepad with a lock on it, so two threads can't scribble at once — safer but slower. Rule of thumb: use `String` for fixed text, `StringBuilder` when you build text in a single thread (the common case, e.g. assembling an audit report), and `StringBuffer` only when multiple threads append to the same buffer.
+
+```java
+// Concatenating in a String loop makes 1000 throwaway String objects
+String csv = "";
+for (String tag : List.of("HIGH", "LEGAL", "REVIEW")) csv += tag + ",";
+
+// StringBuilder reuses one buffer — the go-to for building an audit summary
+StringBuilder sb = new StringBuilder();
+for (String tag : List.of("HIGH", "LEGAL", "REVIEW")) sb.append(tag).append(",");
+String flags = sb.toString(); // "HIGH,LEGAL,REVIEW,"
+```
 
 ```java
 // Bad — creates many objects in a loop

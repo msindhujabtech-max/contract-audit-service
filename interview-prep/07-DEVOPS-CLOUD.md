@@ -13,12 +13,34 @@ A containerization platform. Packages an app with all its dependencies into a po
 | Starts in seconds | Starts in minutes |
 | Less isolation | Full isolation |
 
+**In plain English:** A VM ships an entire operating system, so it's like renting a whole house for every app. A container shares the host's kernel and only packages the app plus its libraries, so it's more like renting a room — much lighter and faster to start. That's why in this project the Spring Boot service builds into a container image (a few hundred MB) instead of a multi-GB VM image.
+
+```bash
+# Container: starts in ~1 second, shares host kernel
+docker run -d contract-audit-service   # up almost instantly
+
+# VM equivalent would boot a full guest OS first (minutes), then the app
+```
+
 ### Key concepts
 - **Image** — read-only template (blueprint)
 - **Container** — running instance of an image
 - **Dockerfile** — instructions to build an image
 - **Registry** — stores images (Docker Hub, ECR)
 - **Volume** — persistent storage outside the container
+
+**How these fit together:** The Dockerfile is the recipe, the image is the baked cake, and a container is a slice you actually serve. The registry is the fridge you store cakes in, and a volume is a separate container that keeps data even if the slice is thrown away. For example, this project's Postgres data lives in a volume so restarting the DB container never loses audit records:
+
+```bash
+# Build an IMAGE from the Dockerfile (recipe)
+docker build -t contract-audit-service .
+
+# Push the IMAGE to a REGISTRY so others/K8s can pull it
+docker push myregistry/contract-audit-service:1.0
+
+# Run a CONTAINER with a VOLUME so data survives restarts
+docker run -d -v pgdata:/var/lib/postgresql/data postgres:16
+```
 
 ### Dockerfile (multi-stage, you used this)
 ```dockerfile
@@ -76,6 +98,15 @@ Container orchestration — automates deployment, scaling, and management of con
 | **Namespace** | Logical isolation of resources |
 | **StatefulSet** | For stateful apps (databases) |
 | **HPA** | Horizontal Pod Autoscaler — scale by CPU/memory |
+
+**How they relate:** A Deployment creates and maintains a set of Pods (your running app), a Service gives those Pods one stable address so callers don't care which Pod answers, and a ConfigMap/Secret feeds them configuration. Ingress lets outside traffic reach the Service, and HPA adds more Pods under load. For the audit service it looks like this: a Deployment runs 3 replicas, a Service load-balances across them, a Secret holds the DB password, and Ingress exposes `/api/audits` publicly.
+
+```bash
+kubectl get deployment audit    # the Deployment managing pods
+kubectl get pods                 # the actual running instances
+kubectl get svc audit            # the stable endpoint fronting them
+# A request flows: Ingress -> Service -> one of the 3 Pods
+```
 
 ### Deployment example
 ```yaml
@@ -136,6 +167,18 @@ A distributed event-streaming platform / message broker. Producers publish to to
 | **Broker** | Kafka server |
 | **Zookeeper** | Coordinates brokers (being replaced by KRaft) |
 
+**Plain English with an example:** Think of a topic as a labeled mailbox (`audit-topic`). Kafka splits that mailbox into partitions so multiple readers can work in parallel. Every consumer in the same consumer group shares the load — each message goes to only one member — while a different group gets its own independent copy. The offset is just a bookmark saying how far a consumer has read. In this project, the audit consumer group processes each event once, but an analytics group could read the same events separately without interfering.
+
+```java
+// Same groupId = shared work. Two instances of this app split the partitions.
+@KafkaListener(topics = "audit-topic", groupId = "audit-group")
+public void consume(String message) { process(message); }
+
+// A DIFFERENT groupId reads the SAME messages independently (its own offsets)
+@KafkaListener(topics = "audit-topic", groupId = "analytics-group")
+public void report(String message) { updateDashboard(message); }
+```
+
 ### Why Kafka over traditional queues (RabbitMQ)?
 - Messages persist (can replay)
 - High throughput (millions/sec)
@@ -156,6 +199,16 @@ public void consume(String message) { process(message); }
 - **At-most-once** — may lose messages, no duplicates
 - **At-least-once** — no loss, possible duplicates (most common)
 - **Exactly-once** — no loss, no duplicates (harder, needs idempotency)
+
+**Concrete example:** Say the audit consumer saves a record and then crashes before telling Kafka "I'm done" (committing the offset). With *at-least-once*, Kafka redelivers that message on restart, so the same audit could be saved twice. The usual fix is to make processing idempotent — for instance, key each record by a unique event ID so a re-delivered message just overwrites instead of duplicating:
+
+```java
+@KafkaListener(topics = "audit-topic", groupId = "audit-group")
+public void consume(AuditEvent event) {
+    // Idempotent: same eventId processed twice = one row, not two
+    auditRepository.save(new AuditRecord(event.getEventId(), event.getPayload()));
+}
+```
 
 ---
 
@@ -225,6 +278,14 @@ mvn package -DskipTests  # build jar without tests
 | Managed DB | RDS | SQL Database | Cloud SQL |
 | Secrets | Secrets Manager | Key Vault | Secret Manager |
 
+**How to read this table:** Each row is the same *job* with three different brand names. If you know one column you effectively know the others — the concept transfers. For example, "run a container cluster" is EKS on AWS, AKS on Azure, and GKE on GCP; the commands and config differ, but you're always deploying pods to managed Kubernetes. This project deploys to GCP, so the audit service's DB password lives in **Secret Manager** and is pulled in at runtime rather than baked into the image:
+
+```bash
+# GCP column of the "Secrets" row in action
+gcloud secrets create db-password --data-file=./password.txt
+gcloud secrets versions access latest --secret=db-password
+```
+
 ### GCP (you deployed here)
 - **Compute Engine** — VMs (your `contract-analyzer-vm`)
 - **Secret Manager** — store credentials (your resume mentions Key Vault/Secret Manager)
@@ -244,6 +305,22 @@ Define cloud infrastructure as code. Run `terraform apply` to create it reproduc
 - **Variable** — configurable input
 - **Output** — values shown after apply
 - **State** — tracks created resources (`terraform.tfstate`)
+
+**How these pieces work together:** The provider tells Terraform *which* cloud to talk to, resources describe *what* to build, variables let you reuse the same code for dev/prod, outputs hand back useful values (like an IP), and state is Terraform's memory of what it already created so it only changes the difference. In this project's GCP setup it looks like:
+
+```hcl
+provider "google" { project = var.project_id }        # provider + variable
+
+resource "google_compute_instance" "vm" {             # resource
+  name         = "contract-analyzer-vm"
+  machine_type = "e2-standard-4"
+}
+
+output "vm_ip" {                                        # output
+  value = google_compute_instance.vm.network_interface[0].network_ip
+}
+```
+After `apply`, Terraform records the VM in state; running `apply` again sees no changes and does nothing.
 
 ### Workflow
 ```bash

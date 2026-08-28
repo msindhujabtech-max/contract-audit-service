@@ -61,6 +61,20 @@ private volatile boolean running = true;
 | Locking | Yes (blocks) | No | No (CAS) |
 | Use | Complex critical sections | Simple flags | Counters |
 
+**In plain terms:** These three solve different slices of the same problem. `volatile` only fixes *visibility* — it guarantees every thread sees the latest value, but `count++` is still three steps (read, add, write) so two threads can clobber each other. `synchronized` fixes both visibility *and* atomicity by letting only one thread into the block at a time, but the waiting threads are blocked (slower). `AtomicInteger` gives you atomic updates without blocking by using a CPU-level Compare-And-Swap — ideal for a simple shared counter like "how many audits have we processed". Rule of thumb: `volatile` for an on/off flag, `Atomic*` for counters, `synchronized` when you must update several fields together as one unit.
+
+```java
+// volatile: safe as a flag, but NOT safe for count++ (lost updates under load)
+private volatile boolean shutdownRequested = false;
+
+// AtomicInteger: safe, lock-free counter — great for tallying processed audits
+AtomicInteger processed = new AtomicInteger();
+processed.incrementAndGet();               // atomic, no other thread can interleave
+
+// synchronized: needed when two fields must change together atomically
+synchronized (this) { total += amount; itemCount++; }
+```
+
 ```java
 AtomicInteger counter = new AtomicInteger(0);
 counter.incrementAndGet();  // atomic, no lock, uses CAS (Compare-And-Swap)
@@ -136,6 +150,18 @@ a.thenCombine(b, (x, y) -> x + " " + y);  // "Hello World"
 | **Metaspace** | Class metadata (Java 8+, replaced PermGen) | Yes |
 | **PC Register** | Current instruction address | No (per thread) |
 
+**In plain terms:** The key distinction interviewers probe is *heap vs stack*. The **heap** is one big shared warehouse where all objects live; any thread can reach an object if it has a reference to it. The **stack** is private scratch space per thread — it holds local variables and the trail of method calls, and it's wiped as each method returns. That's why local variables are inherently thread-safe (each thread has its own stack) but object fields on the heap are not (they're shared). A `StackOverflowError` means the stack ran out (usually runaway recursion); an `OutOfMemoryError: Java heap space` means the warehouse filled up.
+
+```java
+void process() {
+    int localCount = 0;                 // 'localCount' lives on THIS thread's stack
+    AuditRequest req = new AuditRequest(); // the object lives on the shared heap...
+    // ...but 'req' (the reference/pointer to it) sits on the stack
+}
+// When process() returns, the stack frame (localCount, req) is gone.
+// The AuditRequest object stays on the heap until no references point to it (then GC reclaims it).
+```
+
 ### Heap structure (for Garbage Collection)
 
 ```
@@ -160,6 +186,14 @@ Heap
 | Parallel GC | Throughput-focused (Java 8 default) |
 | G1 GC | Balanced, large heaps (Java 9+ default) |
 | ZGC / Shenandoah | Low-latency, huge heaps (Java 15+) |
+
+**In plain terms:** All GCs do the same job — reclaim objects nobody references anymore — they just make different trade-offs between *throughput* (total work done) and *pause time* (how long the app freezes during collection). Serial GC uses one thread and is fine for tiny tools. Parallel GC uses many threads to maximize throughput but has longer pauses. G1 (the modern default) splits the heap into regions and collects them incrementally to keep pauses short and predictable — the sweet spot for most Spring Boot microservices. ZGC/Shenandoah push pauses down to sub-millisecond for very large heaps where even G1's pauses hurt. You rarely pick a GC in interviews, but you should know *why* you'd switch: latency-sensitive service under load → G1 or ZGC.
+
+```bash
+# You select the GC with a JVM flag at startup — no code change needed
+java -XX:+UseG1GC   -Xms512m -Xmx2g -jar contract-audit-service.jar   # balanced default
+java -XX:+UseZGC    -Xmx16g  -jar contract-audit-service.jar          # low-latency, big heap
+```
 
 ### Memory Leaks in Java (yes, they happen)
 

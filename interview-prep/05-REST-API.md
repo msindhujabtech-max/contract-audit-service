@@ -64,11 +64,40 @@ public class ProductController {
 | 202 Accepted | Accepted for async processing |
 | 204 No Content | Success, no body (DELETE) |
 
+In plain terms, 2xx codes tell the client the request worked, but the exact code carries extra meaning. Use `201` when you create something (return the new resource), `202` when you accept work to finish later (perfect for an async audit that gets queued to Kafka), and `204` when there's nothing to send back.
+
+```java
+// POST that creates a resource -> 201 Created + Location header
+@PostMapping("/api/audits")
+public ResponseEntity<Audit> create(@RequestBody AuditRequest req) {
+    Audit saved = auditService.create(req);
+    return ResponseEntity
+        .created(URI.create("/api/audits/" + saved.getId())) // 201
+        .body(saved);
+}
+
+// Async: work published to Kafka, processed later -> 202 Accepted
+@PostMapping("/api/audits/async")
+public ResponseEntity<Void> submitAsync(@RequestBody AuditRequest req) {
+    kafkaTemplate.send("audit-requests", req);
+    return ResponseEntity.accepted().build();   // 202
+}
+```
+
 ### 3xx Redirection
 | Code | Meaning |
 |------|---------|
 | 301 Moved Permanently | Resource moved |
 | 304 Not Modified | Use cached version |
+
+These matter for caching. The client sends an `If-None-Match` header with the ETag it already has; if nothing changed, the server replies `304` with an empty body so the browser reuses its cached copy instead of re-downloading. This saves bandwidth on things like a rarely-changing audit-rules endpoint.
+
+```
+GET /api/audit-rules
+If-None-Match: "v42"
+
+HTTP/1.1 304 Not Modified      <-- no body sent; client uses its cache
+```
 
 ### 4xx Client Errors
 | Code | Meaning |
@@ -80,6 +109,20 @@ public class ProductController {
 | 409 Conflict | State conflict (duplicate) |
 | 429 Too Many Requests | Rate limited |
 
+4xx means "the caller made a mistake," so the fix is on the client side. The two most confused are 401 vs 403: `401` means "I don't know who you are" (no/invalid token), while `403` means "I know who you are, but you can't do this." A 409 typically fires when you try to create something that already exists.
+
+```java
+// 401 vs 403
+if (token == null || !token.isValid())
+    throw new UnauthorizedException();        // 401 - authenticate first
+if (!user.hasRole("AUDITOR"))
+    throw new ForbiddenException();           // 403 - logged in, still denied
+
+// 409 Conflict - duplicate audit for the same contract
+if (auditRepository.existsByContractId(req.getContractId()))
+    throw new ConflictException("Audit already exists for this contract"); // 409
+```
+
 ### 5xx Server Errors
 | Code | Meaning |
 |------|---------|
@@ -87,6 +130,18 @@ public class ProductController {
 | 502 Bad Gateway | Upstream server error |
 | 503 Service Unavailable | Server overloaded/down |
 | 504 Gateway Timeout | Upstream timed out |
+
+5xx means the server (not the caller) failed, so the client can safely retry later. The 502/503/504 family shows up in a microservices setup: if your WebClient call to a downstream service fails or times out, the gateway surfaces it as `502`/`504`. A common pattern is to catch that and return a clean error instead of leaking a raw stack trace.
+
+```java
+// WebClient call to a downstream service, mapping failures to sensible codes
+webClient.get().uri("/contracts/{id}", id)
+    .retrieve()
+    .onStatus(HttpStatusCode::is5xxServerError,
+        resp -> Mono.error(new ServiceUnavailableException("Contract service down"))) // 503
+    .bodyToMono(Contract.class)
+    .timeout(Duration.ofSeconds(3));  // if it hangs, surfaces as a 504 to the caller
+```
 
 ---
 
@@ -184,6 +239,21 @@ public User create(@Valid @RequestBody UserRequest req) { ... }
 | Flexibility | Fixed endpoints | Rigid | Client picks fields |
 | Over/under-fetching | Common issue | N/A | Solved |
 | Use | Most web APIs | Enterprise, legacy | Complex data needs |
+
+The key practical difference is "over-fetching." With REST, an endpoint returns a fixed shape, so if the UI only needs a contract's `id` and `status` it still receives the whole object. GraphQL lets the client ask for exactly those two fields in one query. For this audit service, REST is the right pick — the endpoints are simple and resource-based — but the contrast is worth knowing.
+
+```graphql
+# GraphQL: client requests only the fields it needs
+query {
+  audit(id: "5") {
+    id
+    status          # no wasted payload for description, timestamps, etc.
+  }
+}
+```
+```
+REST equivalent: GET /api/audits/5  ->  returns the ENTIRE audit object
+```
 
 ---
 

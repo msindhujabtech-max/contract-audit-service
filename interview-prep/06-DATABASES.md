@@ -11,6 +11,20 @@
 | DCL (Data Control) | GRANT, REVOKE | Permissions |
 | TCL (Transaction Control) | COMMIT, ROLLBACK, SAVEPOINT | Transactions |
 
+The quick way to remember these: DDL changes the *shape* of the database (tables, columns), DML changes the *data* inside it, DCL changes *who is allowed* to touch it, and TCL decides whether a batch of DML changes is *permanent or undone*. A single audit-save flow can touch several categories:
+
+```sql
+-- DDL: define the table once (schema)
+CREATE TABLE audits (id NUMBER PRIMARY KEY, contract_id NUMBER, status VARCHAR2(20));
+
+-- DCL: grant the app user permission to use it
+GRANT SELECT, INSERT ON audits TO audit_app;
+
+-- TCL + DML: insert a row, then make it permanent (or undo on error)
+INSERT INTO audits VALUES (1, 100, 'PENDING');   -- DML
+COMMIT;                                           -- TCL: now durable
+```
+
 ### JOINs (very common interview topic)
 
 ```sql
@@ -144,6 +158,17 @@ CREATE INDEX idx_composite ON orders(customer_id, order_date);
 | REPEATABLE READ | Prevented | Prevented | Possible |
 | SERIALIZABLE | Prevented | Prevented | Prevented |
 
+Read the table top-to-bottom as "more isolation, but more locking and less concurrency." Most systems (including Postgres) default to READ COMMITTED, which is a good balance. You only raise the level when correctness demands it — for example, if two audit workers might both read a contract's balance and update it, REPEATABLE READ (or a `SELECT ... FOR UPDATE` lock) stops them from stepping on each other.
+
+```sql
+-- Force a stricter level for a sensitive read-modify-write
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+BEGIN;
+  SELECT balance FROM contracts WHERE id = 100;  -- value won't change under me
+  UPDATE contracts SET balance = balance - 50 WHERE id = 100;
+COMMIT;
+```
+
 - **Dirty read** — reading uncommitted data
 - **Non-repeatable read** — same query returns different rows (row changed)
 - **Phantom read** — same query returns different number of rows (rows added/deleted)
@@ -160,6 +185,17 @@ Organizing data to reduce redundancy.
 | 2NF | 1NF + no partial dependency on composite key |
 | 3NF | 2NF + no transitive dependency |
 | BCNF | Stronger 3NF |
+
+Concretely, each form removes a specific kind of redundancy. Say an `audits` table stored the auditor's name and department in every row — that repeats data and risks inconsistency (rename the department once, miss a row). 3NF fixes this by moving the auditor into its own table and referencing it by id:
+
+```sql
+-- NOT normalized: auditor_name + auditor_dept repeat on every audit row
+audits(id, contract_id, auditor_name, auditor_dept)
+
+-- 3NF: auditor details live once; audits point to them
+auditors(id, name, dept)
+audits(id, contract_id, auditor_id)   -- auditor_id is a foreign key
+```
 
 **Denormalization** — intentionally adding redundancy for read performance (common in reporting, microservices read models).
 

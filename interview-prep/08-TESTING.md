@@ -55,6 +55,22 @@ class CalculatorTest {
 | `@ParameterizedTest` | Run with multiple inputs |
 | `@DisplayName` | Readable test name |
 
+**Plain English — lifecycle order:** These annotations control *when* code runs around your tests. `@BeforeAll` fires once at the very start (great for expensive setup), `@BeforeEach` fires fresh before every single test (so tests don't share dirty state), then the `@Test` runs, then `@AfterEach`, and finally `@AfterAll` once at the end. Here's the order made visible:
+
+```java
+class OrderTest {
+    @BeforeAll static void initAll() { System.out.println("1. once, at start"); }
+    @BeforeEach void setup()         { System.out.println("2. before each test"); }
+
+    @Test void testA()               { System.out.println("3. test A"); }
+    @Test void testB()               { System.out.println("3. test B"); }
+
+    @AfterEach void cleanup()        { System.out.println("4. after each test"); }
+    @AfterAll static void tearDown() { System.out.println("5. once, at end"); }
+}
+// Output: 1, then (2,3,4) for testA, then (2,3,4) for testB, then 5
+```
+
 ### Parameterized tests
 ```java
 @ParameterizedTest
@@ -129,6 +145,18 @@ class OrderServiceTest {
 | `@Mock` | Create mock via annotation |
 | `@InjectMocks` | Inject mocks into the tested object |
 | `@Spy` | Partial mock (real methods unless stubbed) |
+
+**Plain English — the two halves of Mockito:** `when(...).thenReturn(...)` sets up *fake behavior before* you act ("if asked X, pretend to return Y"), while `verify(...)` checks *after* you act that a call actually happened. Argument matchers like `any()` and `eq()` let you loosen or pin down what arguments you care about. A `@Spy` differs from a `@Mock` in that it runs the real method unless you explicitly stub it. Putting the common ones together for the audit service's email step:
+
+```java
+// STUB before acting: pretend the gateway succeeds
+when(emailService.send(eq("user@acme.com"), any(String.class))).thenReturn(true);
+
+auditService.completeAudit(order);   // act
+
+// VERIFY after acting: it was called exactly once
+verify(emailService, times(1)).send(eq("user@acme.com"), any(String.class));
+```
 
 ### Argument captor
 ```java

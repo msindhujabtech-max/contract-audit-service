@@ -58,6 +58,21 @@ A **bean** is an object managed by the Spring IoC container.
 | request | One per HTTP request (web) |
 | session | One per HTTP session (web) |
 
+**What the scope actually controls:** it's *how many* copies of the bean the container hands out. `singleton` (the default) means every class that asks for, say, `AuditService` gets the *same* shared object — perfect for stateless services. `prototype` gives a *fresh* object each time it's injected — use it when the bean holds per-use mutable state. `request`/`session` tie the lifetime to a web request or user session. A common bug: injecting a stateful field into a singleton, since all threads then share it.
+
+```java
+@Service                       // singleton by default — one shared instance
+public class AuditService { }
+
+@Component
+@Scope("prototype")            // brand-new instance on every injection/lookup
+public class ReportBuilder {
+    private final List<String> lines = new ArrayList<>();  // safe: not shared
+}
+// Two injections of ReportBuilder == two different objects;
+// two injections of AuditService == the exact same object.
+```
+
 ### Bean lifecycle
 ```
 Instantiate → Populate properties → @PostConstruct → Bean ready → @PreDestroy → Destroyed
@@ -84,6 +99,22 @@ public class MyBean {
 | `@Repository` | Data access layer (adds exception translation) |
 | `@Controller` | Web MVC controller (returns views) |
 | `@RestController` | `@Controller` + `@ResponseBody` (returns JSON) |
+
+**They're all `@Component` under the hood** — Spring scans and registers each as a bean. The difference is intent (which layer a class belongs to) plus a couple of extras: `@Repository` translates raw JDBC/JPA exceptions into Spring's `DataAccessException` hierarchy, and `@RestController` bundles `@ResponseBody` so return values are serialized straight to JSON instead of resolved as a view name. Using the right one makes each class's role obvious at a glance.
+
+```java
+@RestController                 // returns JSON, not a web page
+public class AuditController {
+    private final AuditService service;   // the @Service below
+    public AuditController(AuditService service) { this.service = service; }
+}
+
+@Service                        // "business logic lives here"
+public class AuditService { }
+
+@Repository                     // DB exceptions become DataAccessException automatically
+public interface AuditRepository extends JpaRepository<AuditLog, Long> { }
+```
 
 ### Configuration
 | Annotation | Purpose |
@@ -249,6 +280,27 @@ management:
 | `/actuator/metrics` | JVM, memory, HTTP metrics |
 | `/actuator/info` | Custom app info |
 
+**Why these matter operationally:** these are plain HTTP endpoints Spring Boot exposes for free once Actuator is on the classpath, and your infrastructure calls them for you. Kubernetes hits `/actuator/health` as a *liveness/readiness probe* — if it returns `DOWN`, the platform stops routing traffic to that pod or restarts it. Prometheus scrapes `/actuator/metrics` (or `/actuator/prometheus`) to graph memory, request latency, and circuit-breaker state in Grafana. So health checks and dashboards work without you writing a single monitoring endpoint.
+
+```java
+// A custom health indicator: /actuator/health now reports the audit dependency too
+@Component
+public class AuditServiceHealth implements HealthIndicator {
+    @Override
+    public Health health() {
+        boolean reachable = pingAuditService();
+        return reachable ? Health.up().build()
+                         : Health.down().withDetail("audit-service", "unreachable").build();
+    }
+}
+```
+```yaml
+# Kubernetes wiring the endpoint to a readiness probe
+readinessProbe:
+  httpGet: { path: /actuator/health, port: 8080 }
+  initialDelaySeconds: 10
+```
+
 ---
 
 ## Spring MVC vs Spring WebFlux (you use WebFlux)
@@ -259,6 +311,23 @@ management:
 | Server | Tomcat | Netty |
 | Return types | Object, List | Mono, Flux |
 | Best for | Traditional CRUD | High concurrency, streaming |
+
+**The core trade-off is how threads are used.** In MVC, each incoming request grabs one thread and *holds* it until the work finishes — if that work waits on a slow downstream call, the thread sits idle but blocked, so 200 slow requests can exhaust a 200-thread pool. In WebFlux, a request that's waiting (e.g., on a `WebClient` call to the audit service) *releases* its thread back to a small event-loop pool and resumes later when data arrives, so a handful of threads serve thousands of concurrent, mostly-waiting requests. That's exactly why the analyzer uses WebFlux + `WebClient`: it fans out to slow AI/audit calls without tying up a thread per in-flight request.
+
+```java
+// MVC: this thread is BLOCKED for the whole 2 seconds the audit call takes
+@GetMapping("/mvc/{id}")
+public AuditLog mvc(@PathVariable Long id) {
+    return restTemplate.getForObject("/audit/" + id, AuditLog.class); // thread parked here
+}
+
+// WebFlux: the thread is freed while waiting; resumes when the Mono emits
+@GetMapping("/reactive/{id}")
+public Mono<AuditLog> reactive(@PathVariable Long id) {
+    return webClient.get().uri("/audit/{id}", id)
+                    .retrieve().bodyToMono(AuditLog.class);  // no thread held while waiting
+}
+```
 
 ```java
 // MVC (blocking)

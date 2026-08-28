@@ -121,6 +121,20 @@ public void consume(String message) { ... }
 | Tight coupling acceptable | Loose coupling |
 | Lower throughput | High throughput |
 
+**What this means in practice:** Pick synchronous REST when the caller genuinely needs the answer before it can continue — for example, the analysis service asking a scoring service "is this contract high risk?" and waiting for the number. Pick asynchronous Kafka when the caller only needs to *announce* that something happened and doesn't care who processes it or when — like emitting an "audit event" that the audit service consumes on its own schedule. The async version keeps the two services decoupled: if the audit consumer is down, messages queue up in Kafka and are processed once it recovers, whereas a down REST endpoint fails the caller immediately.
+
+```java
+// SYNCHRONOUS: caller blocks until the audit reply comes back
+String result = webClient.post().uri("/api/audit/log")
+    .bodyValue(request)
+    .retrieve().bodyToMono(String.class)
+    .block();  // must wait — if audit service is slow, we're slow
+
+// ASYNCHRONOUS: caller returns instantly, audit happens later
+kafkaTemplate.send("audit-topic", auditEvent);  // fire-and-forget
+// analysis continues immediately; audit-service consumes at its own pace
+```
+
 ---
 
 ## Observability (The 3 Pillars)
@@ -153,6 +167,23 @@ Tools: Zipkin, Jaeger. Spring uses Micrometer Tracing.
 | Bulkhead | Isolate resource pools |
 | Time Limiter | Timeout long calls |
 
+**How these differ (they solve different failure modes):** *Retry* handles a call that fails *occasionally* — a brief network blip — by trying again a few times. *Circuit Breaker* handles a call that fails *consistently* — it stops hammering a dead service so you fail fast instead of piling up timeouts. *Rate Limiter* protects a downstream service from being overwhelmed by capping how many calls per second you send. *Bulkhead* stops one slow dependency from starving all your threads by giving it a dedicated pool. *Time Limiter* caps how long any single call may hang. In the audit flow they stack: retry the transient blips, trip the breaker if the audit service is truly down, and rate-limit so a burst of contracts doesn't flood it.
+
+```java
+// Concrete config in application.yml showing the numbers behind each pattern
+resilience4j:
+  retry:
+    instances:
+      auditService: { maxAttempts: 3, waitDuration: 500ms }   // 3 tries, 0.5s apart
+  circuitbreaker:
+    instances:
+      auditService: { failureRateThreshold: 50, waitDurationInOpenState: 10s }
+      // if 50% of calls fail, open the circuit for 10s (fail fast, no calls sent)
+  ratelimiter:
+    instances:
+      auditService: { limitForPeriod: 100, limitRefreshPeriod: 1s }  // max 100 calls/sec
+```
+
 ```java
 @Retry(name = "auditService", fallbackMethod = "fallback")
 @CircuitBreaker(name = "auditService")
@@ -167,6 +198,25 @@ public Mono<String> callAudit() { ... }
 - **Spring Cloud Config** — centralized config from a Git repo
 - **Kubernetes ConfigMaps/Secrets** — inject config as env vars
 - **Vault / Key Vault** (on your resume) — secure secret storage
+
+**Why externalize config at all:** the same jar/image must run in dev, staging, and prod without recompiling — only the *values* differ (DB URLs, API keys, log levels). Each option above is just a different source that Spring reads at startup and binds into `@Value` / `@ConfigurationProperties`. Spring Cloud Config centralizes them in Git so config is versioned; ConfigMaps/Secrets inject them as env vars in Kubernetes; Vault keeps the truly sensitive ones encrypted and access-audited.
+
+```java
+// The service code stays identical regardless of where the value comes from
+@Component
+public class AuditProperties {
+    @Value("${audit.service.url}")   // resolved from Git config, ConfigMap, or Vault
+    private String auditServiceUrl;  // dev -> http://localhost:8081
+                                     // prod -> https://audit.internal:443
+}
+```
+```bash
+# Kubernetes injects a Secret value as an env var — no code change, no rebuild
+env:
+  - name: AUDIT_API_KEY
+    valueFrom:
+      secretKeyRef: { name: audit-secrets, key: api-key }
+```
 
 ---
 

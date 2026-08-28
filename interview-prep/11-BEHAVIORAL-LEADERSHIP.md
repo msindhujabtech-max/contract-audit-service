@@ -108,6 +108,21 @@ Asking good questions signals seniority:
 | **I**nterface Segregation | Many specific interfaces > one general |
 | **D**ependency Inversion | Depend on abstractions, not concretions |
 
+**In plain English with examples:** SOLID is five habits for code that's easy to change. **S** — one class, one job: an `AuditService` should log audits, not also send emails and format reports. **O** — add new behavior by extending, not editing tested code: add a new `Notifier` implementation rather than editing the existing one. **L** — a subclass must work anywhere its parent does without surprises (a `Square` that breaks `Rectangle`'s width/height contract violates this). **I** — prefer small focused interfaces: don't force a class to implement methods it doesn't need. **D** — depend on interfaces, not concrete classes.
+
+```java
+// Dependency Inversion in action (this is what Spring DI gives you):
+public class OrderService {
+    private final Notifier notifier;              // depends on the INTERFACE
+    public OrderService(Notifier notifier) {      // injected, not "new EmailNotifier()"
+        this.notifier = notifier;
+    }
+}
+interface Notifier { void send(String msg); }     // abstraction
+class EmailNotifier implements Notifier { ... }    // swap-able concretion
+class SmsNotifier   implements Notifier { ... }    // add new (Open/Closed) without touching OrderService
+```
+
 ### Common Design Patterns
 | Pattern | Use |
 |---------|-----|
@@ -119,6 +134,26 @@ Asking good questions signals seniority:
 | Adapter | Make incompatible interfaces work together |
 | Decorator | Add behavior dynamically |
 | Proxy | Placeholder controlling access |
+
+**In plain English with examples:** You already use several of these daily. **Singleton** — Spring beans are singletons by default (one shared `AuditService`). **Factory** — a method that returns the right object based on input, hiding the `new`. **Builder** — construct a complex object step by step (great for objects with many optional fields). **Strategy** — swap algorithms behind a common interface (exactly the `Notifier` example above). **Observer** — publish/subscribe, which is what Kafka gives you (producers publish, consumers observe).
+
+```java
+// Factory — caller doesn't know the concrete class
+static Notifier create(String type) {
+    return switch (type) {
+        case "email" -> new EmailNotifier();
+        case "sms"   -> new SmsNotifier();
+        default      -> throw new IllegalArgumentException(type);
+    };
+}
+
+// Builder — readable construction of an object with many fields
+AuditRequest req = AuditRequest.builder()
+        .contractName("NDA-2024")
+        .status("ANALYZED")
+        .wordCount(1500)
+        .build();
+```
 
 ### "How would you design a scalable e-commerce checkout?"
 > Discuss: microservices (cart, order, payment, inventory), async messaging (Kafka) for order events, idempotency for payments, caching (Redis) for product data, database per service, saga for distributed transactions, circuit breakers for resilience, horizontal scaling with K8s.
