@@ -31,6 +31,32 @@ Read in order, but focus extra time on **Java, Spring Boot, Microservices, and A
 
 Interviewers frequently ask "what is the difference between X and Y". Documents 13-16 collect **every applicable comparison** across all your technologies in quick-reference tables. Review these thoroughly — they're among the most predictable questions.
 
+## Advanced / Gap-Filling Documents (17-21)
+
+| # | File | Topics Covered |
+|---|------|----------------|
+| 17 | `17-SYSTEM-DESIGN.md` | Design framework, load balancing, caching, sharding, CAP, worked examples (URL shortener, rate limiter, notifications) |
+| 18 | `18-SECURITY.md` | OWASP Top 10, SQL injection, XSS, CSRF, JWT/OAuth2, Spring Security, password hashing |
+| 19 | `19-CONCURRENCY-DEEPDIVE.md` | CountDownLatch, Semaphore, BlockingQueue, thread pools, JMM/happens-before, locks |
+| 20 | `20-KAFKA-DEEPDIVE.md` | Partitions, consumer groups, offsets, delivery semantics, replication, idempotency |
+| 21 | `21-DSA.md` | Big-O, data structures, patterns (two-pointer, sliding window), classic problems |
+
+These fill the gaps most likely probed at a senior/lead level. **System Design (17)** is the highest priority — expect an open-ended design question. **Security (18)** is expected for a lead. **Concurrency (19)** and **Kafka (20)** go deeper on things you claim on your resume/project.
+
+## Advanced / Senior-Level Documents (17-21)
+
+These fill gaps critical for a 12.5-year senior/lead role:
+
+| # | File | Topics Covered |
+|---|------|----------------|
+| 17 | `17-SYSTEM-DESIGN.md` | HLD framework, load balancing, caching, CAP, capacity estimation, worked designs (URL shortener, rate limiter, checkout) |
+| 18 | `18-SECURITY.md` | OWASP Top 10, SQL injection, XSS/CSRF, JWT, OAuth2, Spring Security, password hashing, secrets |
+| 19 | `19-CONCURRENCY-DEEPDIVE.md` | JMM/happens-before, CountDownLatch, Semaphore, BlockingQueue, ThreadLocal, CompletableFuture, locks |
+| 20 | `20-KAFKA-DEEPDIVE.md` | Partitions, consumer groups, rebalancing, offsets, delivery guarantees, DLQ, replication |
+| 21 | `21-DSA.md` | Big-O, data structures, key patterns (two pointers, sliding window, BFS/DFS), common problems, DP, sorting |
+
+**Priority for 3-day prep:** System Design (17) and Security (18) are the most likely to be probed at your level. Concurrency (19) and Kafka (20) back up your resume claims. DSA (21) if the company has a coding round.
+
 ## Your Resume Technology Map
 
 ```
